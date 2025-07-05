@@ -47,6 +47,10 @@ public class Main {
         Map<String, Object> quotes = fyers.getQuotes("NSE:SBIN-EQ,NSE:INFY-EQ");
         log.info("Quotes API response:\n{}", quotes);
 
+        // Fetch open & close prices for NIFTY100 in as few requests as possible
+        Map<String, FyersApiClient.OpenClosePrice> oc = fyers.getOpenClosePricesForNifty100();
+        log.info("NIFTY100 open/close sample (first 5):\n{}", oc.values().stream().limit(5));
+
         // NOTE: Placing orders will create real transactions in your account.
         // Uncomment only if you are sure.
         /*

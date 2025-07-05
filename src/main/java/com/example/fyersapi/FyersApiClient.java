@@ -10,6 +10,7 @@ import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -37,6 +38,13 @@ public class FyersApiClient {
 
     private String accessToken;  // Bearer token used for subsequent requests
     private String refreshToken;
+
+    private static final int QUOTES_BATCH_SIZE = 50;
+
+    /**
+     * Simple immutable holder for open/close prices.
+     */
+    public record OpenClosePrice(double open, double close) {}
 
     public FyersApiClient(String clientId, String secretKey, String redirectUri) {
         this.clientId = Objects.requireNonNull(clientId);
@@ -153,6 +161,48 @@ public class FyersApiClient {
         body.put("stopLoss", 0);
 
         return postJson(url, body, true);
+    }
+
+    /**
+     * Fetch open & previous-close prices for an arbitrary list of symbols. The method automatically
+     * breaks the request into batches of 50 as per FYERS API limits and merges the results.
+     */
+    public Map<String, OpenClosePrice> getOpenClosePrices(List<String> symbols) {
+        Map<String, OpenClosePrice> result = new HashMap<>();
+        for (int i = 0; i < symbols.size(); i += QUOTES_BATCH_SIZE) {
+            List<String> batch = symbols.subList(i, Math.min(i + QUOTES_BATCH_SIZE, symbols.size()));
+            String csv = String.join(",", batch);
+            Map<String, Object> response = getQuotes(csv);
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> data = (List<Map<String, Object>>) response.getOrDefault("d", response.get("data"));
+            if (data == null) {
+                log.warn("Unexpected quotes response structure: {}", response);
+                continue;
+            }
+            for (Map<String, Object> item : data) {
+                String sym = (String) item.get("n");
+                @SuppressWarnings("unchecked")
+                Map<String, Object> v = (Map<String, Object>) item.get("v");
+                if (v == null) continue;
+                double open = toDouble(v.get("open_price"));
+                double close = toDouble(v.get("prev_close_price"));
+                result.put(sym, new OpenClosePrice(open, close));
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Convenience helper for NIFTY 100 – uses the built-in constant list.
+     */
+    public Map<String, OpenClosePrice> getOpenClosePricesForNifty100() {
+        return getOpenClosePrices(Nifty100Stocks.SYMBOLS);
+    }
+
+    private static double toDouble(Object o) {
+        if (o instanceof Number n) return n.doubleValue();
+        if (o instanceof String s) return Double.parseDouble(s);
+        return Double.NaN;
     }
 
     /* =====================================================================================
